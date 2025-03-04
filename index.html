@@ -2,16 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Temple Run Clone</title>
+  <title>Temple Run Clone – Fixed 1x1x1 Colliders</title>
+  <!-- Import map to remap bare specifiers for Three.js and its examples -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.154.0/build/three.module.js",
+      "three/examples/": "https://unpkg.com/three@0.154.0/examples/jsm/"
+    }
+  }
+  </script>
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: #000;
-    }
-    canvas {
-      display: block;
-    }
+    body { margin: 0; overflow: hidden; background: #222; }
+    canvas { display: block; }
     #gameOver {
       position: absolute;
       top: 50%;
@@ -26,80 +29,142 @@
 </head>
 <body>
   <div id="gameOver">Game Over</div>
-  
-  <!-- Include Three.js from a CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script>
-    // ----- Scene, Camera, Renderer Setup -----
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/examples/loaders/GLTFLoader.js";
+
+    // ----- Scene, Camera, and Renderer Setup -----
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x000000, 0.02);
-    
+    scene.background = new THREE.Color(0x222222);
+
     const camera = new THREE.PerspectiveCamera(
-      75, 
-      window.innerWidth / window.innerHeight, 
-      0.1, 
-      1000
+      75, window.innerWidth / window.innerHeight, 0.1, 5000
     );
-    
+    camera.position.set(0, 5, 10);
+
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    // Use new outputColorSpace property
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.body.appendChild(renderer.domElement);
-    
+
     // ----- Lighting -----
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(0, 1, 1);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(0, 10, 10);
     scene.add(directionalLight);
-    
-    // ----- Player Setup -----
-    const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
-    const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-    const player = new THREE.Mesh(playerGeometry, playerMaterial);
-    player.position.set(0, 0.5, 0);
-    scene.add(player);
-    
-    // ----- Ground Setup -----
-    const groundGeometry = new THREE.PlaneGeometry(10, 2000, 10, 200);
-    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+
+    // ----- Ground Setup with Custom Texture -----
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.setCrossOrigin("anonymous");
+    const floorTexture = textureLoader.load("https://i.pinimg.com/736x/8a/6d/20/8a6d204b87e691da6acd8a0126faee9e.jpg");
+    floorTexture.wrapS = THREE.RepeatWrapping;
+    floorTexture.wrapT = THREE.RepeatWrapping;
+    floorTexture.repeat.set(10, 50);
+    floorTexture.colorSpace = THREE.SRGBColorSpace;
+
+    const groundGeometry = new THREE.PlaneGeometry(10, 2000);
+    const groundMaterial = new THREE.MeshStandardMaterial({ map: floorTexture });
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.position.z = -1000;
     scene.add(ground);
-    
+
     // ----- Lane and Movement Variables -----
-    const lanePositions = [-2, 0, 2]; // left, center, right lanes
-    let currentLane = 1;             // start at center lane
+    const lanePositions = [-2, 0, 2];
+    let currentLane = 1;
     let targetX = lanePositions[currentLane];
-    const forwardSpeed = 0.2;        // player forward speed
-    
-    // ----- Obstacles -----
+    const forwardSpeed = 0.2;
+
+    // ----- Player Setup (Placeholder Cube) -----
+    let player = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+    );
+    player.position.set(0, 0.5, 0);
+    scene.add(player);
+
+    // ----- Load the Player Model (DamagedHelmet) -----
+    const playerLoader = new GLTFLoader();
+    const playerModelURL = "https://raw.githack.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf";
+    playerLoader.load(
+      playerModelURL,
+      (gltf) => {
+        const model = gltf.scene;
+        model.scale.set(0.8, 0.8, 0.8);
+        model.position.copy(player.position);
+        scene.remove(player);
+        player = model;
+        scene.add(player);
+      },
+      (xhr) => { console.log((xhr.loaded/xhr.total*100)+"% loaded (player model)"); },
+      (error) => { console.error("Error loading player model:", error); }
+    );
+
+    // ----- Load the Obstacle Model (Robot Expressive) -----
+    let obstacleModel = null;
+    const obstacleLoader = new GLTFLoader();
+    const obstacleModelURL = "https://raw.githack.com/mrdoob/three.js/master/examples/models/gltf/RobotExpressive/RobotExpressive.glb";
+    obstacleLoader.load(
+      obstacleModelURL,
+      (gltf) => {
+        obstacleModel = gltf.scene;
+        obstacleModel.scale.set(0.2, 0.2, 0.2);
+        // Replace fallback obstacles (red cubes) with clones of the loaded model.
+        obstacles.forEach((obs, index) => {
+          if (obs.userData.fallback) {
+            scene.remove(obs);
+            const newObs = obstacleModel.clone(true);
+            newObs.position.copy(obs.position);
+            scene.add(newObs);
+            obstacles[index] = newObs;
+          }
+        });
+      },
+      (xhr) => { console.log((xhr.loaded/xhr.total*100)+"% loaded (obstacle model)"); },
+      (error) => { console.error("Error loading obstacle model:", error); }
+    );
+
+    // ----- Obstacles Creation -----
     const obstacles = [];
-    
     function createObstacle(zPosition) {
+      let obstacle;
+      if (obstacleModel) {
+        obstacle = obstacleModel.clone(true);
+      } else {
+        obstacle = new THREE.Mesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshStandardMaterial({ color: 0xff0000 })
+        );
+        obstacle.userData.fallback = true;
+      }
       const lane = lanePositions[Math.floor(Math.random() * lanePositions.length)];
-      const obstacleGeometry = new THREE.BoxGeometry(1, 1, 1);
-      const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-      const obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
       obstacle.position.set(lane, 0.5, zPosition);
       scene.add(obstacle);
       obstacles.push(obstacle);
     }
-    
-    // Create initial obstacles with lower density.
-    const obstacleSpacing = 40;
-    for (let z = -20; z > -1000; z -= obstacleSpacing) {
-      // 70% chance to create an obstacle at this spacing
-      if (Math.random() < 0.7) {
-        createObstacle(z);
-      }
+    for (let z = -20; z > -1000; z -= 20) {
+      if (Math.random() < 0.7) createObstacle(z);
     }
-    
-    // ----- Camera Positioning -----
-    camera.position.set(0, 5, 5);
-    camera.lookAt(player.position);
-    
-    // ----- Keyboard Controls (Arrow keys and A/D keys) -----
+
+    // ----- Fixed Collider: 1x1x1 Box at Object's Position -----
+    // This helper returns a fixed bounding box for a given position.
+    function getFixedBox(position) {
+      const halfSize = 0.5;
+      const min = new THREE.Vector3(position.x - halfSize, position.y - halfSize, position.z - halfSize);
+      const max = new THREE.Vector3(position.x + halfSize, position.y + halfSize, position.z + halfSize);
+      return new THREE.Box3(min, max);
+    }
+
+    // Collision detection using fixed box colliders for both objects.
+    function detectCollisionFixed(obj1, obj2) {
+      const box1 = getFixedBox(obj1.position);
+      const box2 = getFixedBox(obj2.position);
+      return box1.intersectsBox(box2);
+    }
+
+    // ----- Keyboard Controls -----
     window.addEventListener("keydown", (event) => {
       const key = event.key.toLowerCase();
       if ((key === "arrowleft" || key === "a") && currentLane > 0) {
@@ -111,56 +176,43 @@
         targetX = lanePositions[currentLane];
       }
     });
-    
-    // ----- Improved Collision Detection using Box3 -----
-    function detectCollision(obj1, obj2) {
-      const box1 = new THREE.Box3().setFromObject(obj1);
-      const box2 = new THREE.Box3().setFromObject(obj2);
-      return box1.intersectsBox(box2);
-    }
-    
+
     // ----- Game Loop -----
     let gameOver = false;
-    
     function animate() {
       if (gameOver) return;
       requestAnimationFrame(animate);
-      
-      // Move player forward continuously
-      player.position.z -= forwardSpeed;
-      
-      // Smoothly transition player to target lane
-      player.position.x += (targetX - player.position.x) * 0.2;
-      
-      // Update camera to follow player
-      camera.position.z = player.position.z + 5;
-      camera.position.x += (player.position.x - camera.position.x) * 0.1;
-      camera.lookAt(player.position);
-      
-      // Move obstacles and generate new ones when needed
+
+      if (player) {
+        // Update player position.
+        player.position.z -= forwardSpeed;
+        player.position.x += (targetX - player.position.x) * 0.2;
+        // Update camera to follow the player.
+        camera.position.set(
+          player.position.x,
+          player.position.y + 5,
+          player.position.z + 5
+        );
+        camera.lookAt(player.position);
+      }
+
+      // Check collision using fixed 1x1x1 box colliders.
       for (let i = obstacles.length - 1; i >= 0; i--) {
         const obs = obstacles[i];
-        // When an obstacle is behind the player, remove it...
         if (obs.position.z > player.position.z + 5) {
           scene.remove(obs);
           obstacles.splice(i, 1);
-          // Only add a new obstacle with a 50% chance
-          if (Math.random() < 0.5) {
-            createObstacle(player.position.z - 100);
-          }
+          if (Math.random() < 0.5) createObstacle(player.position.z - 100);
         }
-        // Check collision with player
-        if (detectCollision(player, obs)) {
+        if (player && detectCollisionFixed(player, obs)) {
           gameOver = true;
           document.getElementById("gameOver").style.display = "block";
         }
       }
-      
       renderer.render(scene, camera);
     }
-    
     animate();
-    
+
     // ----- Handle Window Resize -----
     window.addEventListener("resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;

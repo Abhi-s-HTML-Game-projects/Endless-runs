@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pixel Dash - Particle Runner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1a1a2e;
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+        }
+        #gameCanvas {
+            border: 4px solid #4a4e69;
+            background-color: #16213e;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            image-rendering: pixelated;
+        }
+        #scoreDisplay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div id="scoreDisplay">Score: 0</div>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+    <script>
+        // Game constants
+        const CANVAS_WIDTH = 800;
+        const CANVAS_HEIGHT = 400;
+        const GROUND_HEIGHT = 100;
+        const GRAVITY = 0.5;
+        const JUMP_FORCE = -10;
+        const OBSTACLE_SPEED = -5;
+
+        // Particle Class
+        class Particle {
+            constructor(x, y, color, isBackgroundParticle = false) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.radius = isBackgroundParticle 
+                    ? Math.random() * 2 + 0.5  // Smaller for background
+                    : Math.random() * 3 + 1;
+                this.speedX = isBackgroundParticle 
+                    ? (Math.random() - 0.5) * 1.5  // Slower background drift
+                    : (Math.random() - 0.5) * 3;
+                this.speedY = isBackgroundParticle 
+                    ? (Math.random() - 0.5) * 1  // More subtle vertical movement
+                    : (Math.random() - 0.5) * 3;
+                this.alpha = 1;
+                this.decay = isBackgroundParticle 
+                    ? 0  // Very slow fade
+                    : Math.random() * 0.02 + 0.01;
+                this.isBackgroundParticle = isBackgroundParticle;
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                
+                // Different alpha decay for background particles
+                this.alpha -= this.decay;
+
+                // Wrap around for background particles to create continuous flow
+                if (this.isBackgroundParticle) {
+                    if (this.x < 0) this.x = CANVAS_WIDTH;
+                    if (this.x > CANVAS_WIDTH) this.x = 0;
+                    if (this.y < 0) this.y = CANVAS_HEIGHT;
+                    if (this.y > CANVAS_HEIGHT) this.y = 0;
+                }
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${this.color}, ${this.alpha})`;
+                ctx.fill();
+            }
+        }
+
+        // Particle System Class
+        class ParticleSystem {
+            constructor() {
+                this.particles = [];
+                this.backgroundParticles = [];
+            }
+
+            addParticles(x, y, color, count = 10, isBackground = false) {
+                for (let i = 0; i < count; i++) {
+                    const particle = new Particle(x, y, color, isBackground);
+                    if (isBackground) {
+                        this.backgroundParticles.push(particle);
+                    } else {
+                        this.particles.push(particle);
+                    }
+                }
+            }
+
+            update(ctx) {
+                // Update and draw background particles
+                for (let i = this.backgroundParticles.length - 1; i >= 0; i--) {
+                    const particle = this.backgroundParticles[i];
+                    particle.update();
+                    particle.draw(ctx);
+                }
+
+                // Update and draw action particles
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    const particle = this.particles[i];
+                    particle.update();
+
+                    if (particle.alpha <= 0) {
+                        this.particles.splice(i, 1);
+                    } else {
+                        particle.draw(ctx);
+                    }
+                }
+            }
+        }
+
+        // Game Setup
+        class Game {
+            constructor() {
+                // Canvas setup
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.scoreDisplay = document.getElementById('scoreDisplay');
+
+                // Game state
+                this.score = 0;
+                this.isGameOver = false;
+                this.frameCount = 0;
+                
+                // Particle system
+                this.particleSystem = new ParticleSystem();
+                this.initBackgroundParticles();
+
+                // Game objects
+                this.player = this.createPlayer();
+                this.obstacles = [];
+
+                // Event listeners
+                this.setupEventListeners();
+            }
+
+            initBackgroundParticles(count = 150) {
+                for (let i = 0; i < count; i++) {
+                    this.particleSystem.addParticles(
+                        Math.random() * CANVAS_WIDTH, 
+                        Math.random() * (CANVAS_HEIGHT - GROUND_HEIGHT), 
+                        '200,200,255', 
+                        1, 
+                        true
+                    );
+                }
+            }
+
+            createPlayer() {
+                return {
+                    width: 50,
+                    height: 50,
+                    x: 100,
+                    y: CANVAS_HEIGHT - GROUND_HEIGHT - 50,
+                    velocity: 0,
+                    isJumping: false,
+                    jump(particleSystem) {
+                        if (!this.isJumping) {
+                            this.velocity = JUMP_FORCE;
+                            this.isJumping = true;
+
+                            // Jump particles (cyan)
+                            particleSystem.addParticles(
+                                this.x + this.width / 2, 
+                                this.y + this.height, 
+                                '0,255,255', 
+                                20
+                            );
+                        }
+                    },
+                    update(particleSystem) {
+                        this.velocity += GRAVITY;
+                        this.y += this.velocity;
+
+                        // Ground collision
+                        if (this.y + this.height >= CANVAS_HEIGHT - GROUND_HEIGHT) {
+                            // Landing particles (orange)
+                            if (this.isJumping) {
+                                particleSystem.addParticles(
+                                    this.x + this.width / 2, 
+                                    this.y + this.height, 
+                                    '255,165,0', 
+                                    15
+                                );
+                            }
+
+                            this.y = CANVAS_HEIGHT - GROUND_HEIGHT - this.height;
+                            this.velocity = 0;
+                            this.isJumping = false;
+                        }
+                    },
+                    draw(ctx) {
+                        ctx.fillStyle = '#00ff00';
+                        ctx.fillRect(this.x, this.y, this.width, this.height);
+                    }
+                };
+            }
+
+            setupEventListeners() {
+                document.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space') {
+                        this.player.jump(this.particleSystem);
+                    }
+                });
+            }
+
+            spawnObstacle() {
+                // Alternate between ground and aerial obstacles
+                const isAerial = Math.random() > 0.5;
+                const obstacle = new Obstacle(isAerial);
+                this.obstacles.push(obstacle);
+            }
+
+            checkCollision() {
+                this.obstacles.forEach((obstacle) => {
+                    // Detailed collision check that considers jumping state
+                    const playerRight = this.player.x + this.player.width;
+                    const playerBottom = this.player.y + this.player.height;
+                    const obstacleRight = obstacle.x + obstacle.width;
+                    const obstacleBottom = obstacle.y + obstacle.height;
+
+                    const horizontalCollision = 
+                        this.player.x < obstacleRight && 
+                        playerRight > obstacle.x;
+
+                    const verticalCollision = 
+                        this.player.y < obstacleBottom && 
+                        playerBottom > obstacle.y;
+
+                    // Special handling for aerial obstacles
+                    if (horizontalCollision && verticalCollision) {
+                        // Collision particles (red)
+                        this.particleSystem.addParticles(
+                            obstacle.x + obstacle.width / 2, 
+                            obstacle.y + obstacle.height / 2, 
+                            '255,0,0', 
+                            30
+                        );
+
+                        // Only end game if obstacle is aerial or player is on ground
+                        if (obstacle.isAerial === this.player.isJumping) {
+                            this.isGameOver = true;
+                        }
+                    }
+                });
+            }
+
+            update() {
+                if (this.isGameOver) return;
+
+                this.frameCount++;
+
+                // Update player
+                this.player.update(this.particleSystem);
+
+                // Spawn obstacles periodically
+                if (this.frameCount % 180 === 0) {
+                    this.spawnObstacle();
+                }
+
+                // Update and clean up obstacles
+                this.obstacles.forEach((obstacle, index) => {
+                    obstacle.update();
+                    if (obstacle.x + obstacle.width < 0) {
+                        this.obstacles.splice(index, 1);
+                    }
+                });
+
+                // Check for collisions
+                this.checkCollision();
+
+                // Increment score
+                this.score++;
+                this.scoreDisplay.textContent = `Score: ${this.score}`;
+            }
+
+            draw() {
+                // Clear canvas
+                this.ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                // Draw ground
+                this.ctx.fillStyle = '#808080';
+                this.ctx.fillRect(0, CANVAS_HEIGHT - GROUND_HEIGHT, CANVAS_WIDTH, GROUND_HEIGHT);
+
+                // Update and draw particles
+                this.particleSystem.update(this.ctx);
+
+                // Draw player
+                this.player.draw(this.ctx);
+
+                // Draw obstacles
+                this.obstacles.forEach(obstacle => obstacle.draw(this.ctx));
+            }
+
+            gameLoop() {
+                this.update();
+                this.draw();
+                
+                if (!this.isGameOver) {
+                    requestAnimationFrame(() => this.gameLoop());
+                }
+            }
+
+            start() {
+                this.gameLoop();
+            }
+        }
+
+        // Obstacle Class
+        class Obstacle {
+            constructor(isAerial = false) {
+                this.width = 20;
+                this.height = isAerial ? 30 : 50;
+                this.x = CANVAS_WIDTH;
+                
+                // Determine vertical position based on type
+                if (isAerial) {
+                    // Randomly position in air
+                    this.y = Math.random() * (CANVAS_HEIGHT - GROUND_HEIGHT - this.height - 100) + 50;
+                } else {
+                    // Ground obstacle
+                    this.y = CANVAS_HEIGHT - GROUND_HEIGHT - this.height;
+                }
+                
+                this.isAerial = isAerial;
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = this.isAerial ? '#ff6600' : '#ff0000';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+
+            update() {
+                this.x += OBSTACLE_SPEED;
+            }
+        }
+
+        // Initialize and start the game
+        const game = new Game();
+        game.start();
+    </script>
+</body>
+</html>
